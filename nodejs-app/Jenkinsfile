@@ -1,0 +1,174 @@
+pipeline {
+  agent any
+
+  environment {
+    AWS_REGION        = 'ap-south-1'
+    ECR_REGISTRY      = credentials('ECR_REGISTRY')        // e.g. 123456789.dkr.ecr.ap-south-1.amazonaws.com
+    IMAGE_NAME        = 'nodejs-cicd-app'
+    IMAGE_TAG         = "${env.BUILD_NUMBER}"
+    MANIFEST_REPO     = 'https://github.com/YOUR_USERNAME/nodejs-k8s-manifests.git'
+    GIT_CREDENTIALS   = 'github-token'                     // Jenkins credential ID
+    SONAR_PROJECT_KEY = 'nodejs-cicd-app'
+  }
+
+  options {
+    buildDiscarder(logRotator(numToKeepStr: '10'))
+    timeout(time: 30, unit: 'MINUTES')
+    disableConcurrentBuilds()
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        checkout scm
+        echo "Building branch: ${env.BRANCH_NAME} | Build #${env.BUILD_NUMBER}"
+      }
+    }
+
+    stage('Install Dependencies') {
+      steps {
+        dir('nodejs-app') {
+          sh 'npm ci'
+        }
+      }
+    }
+
+    stage('Run Tests') {
+      steps {
+        dir('nodejs-app') {
+          sh 'npm test'
+        }
+      }
+      post {
+        always {
+          junit 'nodejs-app/coverage/junit.xml'
+          publishHTML([
+            reportDir: 'nodejs-app/coverage/lcov-report',
+            reportFiles: 'index.html',
+            reportName: 'Coverage Report'
+          ])
+        }
+      }
+    }
+
+    stage('SonarQube Analysis') {
+      when { branch 'main' }
+      steps {
+        withSonarQubeEnv('SonarQube') {
+          sh """
+            npx sonar-scanner \
+              -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+              -Dsonar.sources=nodejs-app/src \
+              -Dsonar.javascript.lcov.reportPaths=nodejs-app/coverage/lcov.info
+          """
+        }
+        timeout(time: 5, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: true
+        }
+      }
+    }
+
+    stage('Docker Build') {
+      steps {
+        dir('nodejs-app') {
+          sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+          sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest"
+        }
+      }
+    }
+
+    stage('Trivy Security Scan') {
+      steps {
+        sh """
+          trivy image --exit-code 1 --severity HIGH,CRITICAL \
+            --no-progress ${IMAGE_NAME}:${IMAGE_TAG} || true
+        """
+      }
+    }
+
+    stage('Push to AWS ECR') {
+      steps {
+        withAWS(region: "${AWS_REGION}", credentials: 'aws-credentials') {
+          sh """
+            aws ecr get-login-password --region ${AWS_REGION} | \
+              docker login --username AWS --password-stdin ${ECR_REGISTRY}
+
+            docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+            docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:latest
+
+            docker push ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+            docker push ${ECR_REGISTRY}/${IMAGE_NAME}:latest
+          """
+        }
+      }
+    }
+
+    stage('Update K8s Manifest (Dev)') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: "${GIT_CREDENTIALS}",
+          usernameVariable: 'GIT_USER',
+          passwordVariable: 'GIT_TOKEN'
+        )]) {
+          sh """
+            rm -rf manifest-repo
+            git clone https://${GIT_USER}:${GIT_TOKEN}@github.com/YOUR_USERNAME/nodejs-k8s-manifests.git manifest-repo
+            cd manifest-repo
+
+            sed -i "s|image: .*nodejs-cicd-app.*|image: ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}|g" dev/deployment.yaml
+
+            git config user.email "jenkins@cicd.local"
+            git config user.name "Jenkins CI"
+            git add dev/deployment.yaml
+            git commit -m "ci: update dev image to build #${IMAGE_TAG} [skip ci]"
+            git push origin main
+          """
+        }
+      }
+    }
+
+    stage('Promote to Prod?') {
+      when { branch 'main' }
+      steps {
+        input message: "Deploy build #${IMAGE_TAG} to Production?", ok: 'Deploy'
+      }
+    }
+
+    stage('Update K8s Manifest (Prod)') {
+      when { branch 'main' }
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: "${GIT_CREDENTIALS}",
+          usernameVariable: 'GIT_USER',
+          passwordVariable: 'GIT_TOKEN'
+        )]) {
+          sh """
+            cd manifest-repo
+
+            sed -i "s|image: .*nodejs-cicd-app.*|image: ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}|g" prod/deployment.yaml
+
+            git add prod/deployment.yaml
+            git commit -m "ci: promote build #${IMAGE_TAG} to prod [skip ci]"
+            git push origin main
+          """
+        }
+      }
+    }
+
+  }
+
+  post {
+    success {
+      echo "Pipeline SUCCESS — image ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} deployed via ArgoCD"
+    }
+    failure {
+      echo "Pipeline FAILED — check logs above"
+      // Add Slack/email notification here
+    }
+    always {
+      sh 'docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true'
+      cleanWs()
+    }
+  }
+}
