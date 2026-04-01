@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodejs-cicd-app-svc
+  namespace: dev
+  labels:
+    app: nodejs-cicd-app
+    env: dev
+spec:
+  type: ClusterIP
+  selector:
+    app: nodejs-cicd-app
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 3000
