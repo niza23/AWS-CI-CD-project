@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nodejs-cicd-app-prod
+  namespace: argocd
+  labels:
+    project: nodejs-cicd
+    env: prod
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: nodejs-cicd
+
+  source:
+    repoURL: https://github.com/YOUR_USERNAME/nodejs-k8s-manifests.git
+    targetRevision: HEAD
+    path: prod
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prod
+
+  syncPolicy:
+    # Prod: manual sync for safety (ArgoCD detects drift but does NOT auto-apply)
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
