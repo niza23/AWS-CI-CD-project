@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: nodejs-cicd
+  namespace: argocd
+spec:
+  description: "Node.js CI/CD demo project"
+
+  # Allow syncing from this repo only
+  sourceRepos:
+    - https://github.com/YOUR_USERNAME/nodejs-k8s-manifests.git
+
+  # Allow deploying to dev and prod namespaces only
+  destinations:
+    - namespace: dev
+      server: https://kubernetes.default.svc
+    - namespace: prod
+      server: https://kubernetes.default.svc
+
+  # Allow all core Kubernetes resources
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: ServiceAccount
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+
+  # Prevent accidental deletion of production resources
+  orphanedResources:
+    warn: true
