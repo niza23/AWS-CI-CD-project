@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nodejs-cicd-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  nodejs-cicd.json: |
+    {
+      "title": "Node.js CI/CD App",
+      "uid": "nodejs-cicd-app",
+      "tags": ["nodejs", "cicd", "eks"],
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "panels": [
+        {
+          "id": 1,
+          "title": "HTTP Requests/sec",
+          "type": "graph",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "targets": [
+            {
+              "expr": "rate(http_requests_total{job=~'nodejs-cicd-app.*'}[5m])",
+              "legendFormat": "{{namespace}} - {{method}} {{status}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Pod CPU Usage",
+          "type": "graph",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "targets": [
+            {
+              "expr": "rate(container_cpu_usage_seconds_total{container='nodejs-cicd-app'}[5m])",
+              "legendFormat": "{{pod}} ({{namespace}})"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Pod Memory Usage (MB)",
+          "type": "graph",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "targets": [
+            {
+              "expr": "container_memory_usage_bytes{container='nodejs-cicd-app'} / 1024 / 1024",
+              "legendFormat": "{{pod}} ({{namespace}})"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Replica Count",
+          "type": "stat",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "targets": [
+            {
+              "expr": "kube_deployment_status_replicas_available{deployment='nodejs-cicd-app'}",
+              "legendFormat": "{{namespace}}"
+            }
+          ]
+        }
+      ]
+    }
