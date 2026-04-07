@@ -1,0 +1,60 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nodejs-cicd-app-monitor
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: nodejs-cicd-app
+  namespaceSelector:
+    matchNames:
+      - dev
+      - prod
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-extra-scrape
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 30s
+      evaluation_interval: 30s
+
+    scrape_configs:
+      - job_name: 'nodejs-cicd-app-dev'
+        static_configs:
+          - targets: ['nodejs-cicd-app-svc.dev.svc.cluster.local:80']
+        metrics_path: /metrics
+
+      - job_name: 'nodejs-cicd-app-prod'
+        static_configs:
+          - targets: ['nodejs-cicd-app-svc.prod.svc.cluster.local:80']
+        metrics_path: /metrics
+
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
