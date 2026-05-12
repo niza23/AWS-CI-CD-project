@@ -78,4 +78,3 @@ kubectl apply -f monitoring/grafana/dashboard-configmap.yaml
 ```
 
 Grafana auto-detects ConfigMaps with label `grafana_dashboard: "1"` and imports the dashboard automatically — no manual clicking in Grafana UI needed.
-
