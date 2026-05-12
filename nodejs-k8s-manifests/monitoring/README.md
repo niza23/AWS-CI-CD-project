@@ -54,4 +54,28 @@ The flag `serviceMonitorSelectorNilUsesHelmValues=false` is important — withou
 kubectl port-forward svc/kube-prometheus-stack-grafana 3001:80 -n monitoring
 ```
 
+Open: http://localhost:3001
+- Username: `admin`
+- Password: `admin123`
+
+---
+
+## Access Prometheus
+
+```bash
+kubectl port-forward svc/kube-prometheus-stack-prometheus 9090:9090 -n monitoring
+```
+
+Open: http://localhost:9090
+
+---
+
+## Apply monitoring configs
+
+```bash
+kubectl apply -f monitoring/prometheus/servicemonitor.yaml
+kubectl apply -f monitoring/grafana/dashboard-configmap.yaml
+```
+
+Grafana auto-detects ConfigMaps with label `grafana_dashboard: "1"` and imports the dashboard automatically — no manual clicking in Grafana UI needed.
 
